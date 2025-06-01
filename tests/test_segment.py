@@ -8,7 +8,7 @@ from mef_tools.reimplementation import TimeSeriesMetadataFile, EncryptionHandler
 def test_try():
     path = '/Users/mivalt.filip/mef_tools_new/mef_tools_new/test.mefd'
 
-    # wrt = MefWriter(path, overwrite=True)
+    wrt = MefWriter(path, overwrite=True)
 
     wrt = MefWriter(path, overwrite=True, password1='kokot', password2='kokot.')
     wrt.mef_block_len = 100
@@ -29,20 +29,22 @@ def test_try():
 
     # print(self)
 
-    print(self.universal_header)
+    print('\n\n######## Universal #############')
+    for k, v in self.universal_header.data.items():
+        print(f"{k}: {v}")
 
     print('\n\n######## Section 1 #############')
-    for k, v in self.section1._data_raw.items():
+    for k, v in self.section1.data.items():
         print(f"{k}: {v}")
 
     print('\n\n######## Section 2 #############')
     print(self.section2)
-    for k, v in self.section2._data_raw.items():
+    for k, v in self.section2.data.items():
         print(f"{k}: {v}")
 
     print('\n\n######## Section 3 #############')
     print(self.section3)
-    for k, v in self.section3._data_raw.items():
+    for k, v in self.section3.data.items():
         print(f"{k}: {v}")
 
 
