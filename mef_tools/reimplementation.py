@@ -41,6 +41,39 @@ LEVEL_1_ENCRYPTION = 1
 LEVEL_2_ENCRYPTION = 2
 
 
+UNIVERSAL_HEADER_BYTES = 1024
+CRC_START_VALUE = 0xFFFFFFFF
+PASSWORD_BYTES = 16
+PASSWORD_VALIDATION_FIELD_BYTES = 16
+MEF_VERSION_MAJOR = 3
+MEF_VERSION_MINOR = 0
+MEF_LITTLE_ENDIAN = 1
+
+# "No Entry" values
+UUTC_NO_ENTRY = 0x8000000000000000 # For si8 time fields
+SI8_NO_ENTRY_NEG1 = -1
+SI4_NO_ENTRY_NEG1 = -1
+UI4_NO_ENTRY_FFFF = 0xFFFFFFFF
+SF8_NO_ENTRY_NEG1_0 = -1.0
+SF8_NO_ENTRY_NAN = float('nan')
+GMT_OFFSET_NO_ENTRY = -86401 # As per meflib.h MEF_METADATA_GMT_OFFSET_NO_ENTRY
+
+EMPTY_STRING_BYTES_MAP = {
+    5: b'\0'*5, 16: b'\0'*16, 60: b'\0'*60, 64: b'\0'*64,
+    128: b'\0'*128, 256: b'\0'*256, 512: b'\0'*512,
+    766: b'\0'*766, 768: b'\0'*768, 1024: b'\0'*1024,
+    1124: b'\0'*1124, 2048: b'\0'*2048, 2160: b'\0'*2160,
+}
+
+# Access Levels & Encryption Flags
+LEVEL_0_ACCESS = 0
+LEVEL_1_ACCESS = 1
+LEVEL_2_ACCESS = 2
+NO_ENCRYPTION = 0
+LEVEL_1_ENCRYPTION = 1
+LEVEL_2_ENCRYPTION = 2
+
+
 # CRC Table from meflib.h (CRC_KOOPMAN32_KEY)
 CRC_KOOPMAN32_TABLE = (
     0x00000000, 0x9695C4CA, 0xFB4839C9, 0x6DDDFD03, 0x20F3C3CF, 0xB6660705,
@@ -1129,7 +1162,7 @@ class TimeSeriesMetadataSection2(HeaderABC):
                 f"ChannelDesc='{data_dict.get('channel_description', '')[:30]}...'")
 
 
-class MetadataSection3:
+class MetadataSection3_:
     SIZE = 3072
     # Offsets relative to the start of Section 3's data bytes
     FIELD_DEFINITIONS = [
@@ -1200,6 +1233,62 @@ class MetadataSection3:
     def __str__(self):
         return (f"  MetadataSection3: RTO={self.recording_time_offset}, GMT_Offset={self.gmt_offset}, "
                 f"SubjectID='{self.subject_id}'")
+
+
+
+class MetadataSection3(HeaderABC):
+    SIZE = 3072
+    # (prop_name, raw_key_in_data_raw, struct_fmt, offset_in_section, size_in_bytes, type_hint)
+    # type_hint: 'utf8', 'ascii', 'hex', or False for numerical/uninterpreted raw bytes
+    FIELD_DEFINITIONS = [
+        ('recording_time_offset', 's3_recording_time_offset_raw', '<q', 0, 8, False),
+        ('dst_start_time', 's3_dst_start_time_raw', '<q', 8, 8, False),
+        ('dst_end_time', 's3_dst_end_time_raw', '<q', 16, 8, False),
+        ('gmt_offset', 's3_gmt_offset_raw', '<i', 24, 4, False),
+        ('subject_name_1', 's3_subject_name_1_raw', '128s', 28, 128, 'utf8'),
+        ('subject_name_2', 's3_subject_name_2_raw', '128s', 156, 128, 'utf8'),
+        ('subject_id', 's3_subject_id_raw', '128s', 284, 128, 'utf8'),
+        ('recording_location', 's3_recording_location_raw', '512s', 412, 512, 'utf8'),
+        ('protected_region', 's3_protected_region_raw', '1124s', 924, 1124, 'hex'),
+        ('discretionary_region', 's3_discretionary_region_raw', '1024s', 2048, 1024, 'hex')
+    ]
+
+    def __init__(self, data_bytes: bytes = None, create_new: bool = False):
+        super().__init__(data_bytes=data_bytes, create_new=create_new)
+        # _make_properties() is called by super().__init__()
+        # If create_new was True, self._initialize_new_raw_data() in HeaderABC was called,
+        # now we set specific defaults using our new dynamic properties.
+        if create_new and self._initialized_for_new: # Check flag set by base _initialize_new_raw_data
+            self._initialize_new_specifics()
+
+    def keys(self):
+        """Returns the keys of the data dictionary."""
+        return self._data_raw.keys()
+
+    def _initialize_new_specifics(self):
+        """Sets MEF specific default values for a new MetadataSection3 instance
+           by using the dynamically created setters.
+        """
+        # These assignments will use the setters created by _make_properties
+        self.recording_time_offset = UUTC_NO_ENTRY
+        self.dst_start_time = UUTC_NO_ENTRY
+        self.dst_end_time = UUTC_NO_ENTRY
+        self.gmt_offset = GMT_OFFSET_NO_ENTRY
+        self.subject_name_1 = ""
+        self.subject_name_2 = ""
+        self.subject_id = ""
+        self.recording_location = ""
+        self.protected_region = ('00' * 1124) # Setter expects hex string
+        self.discretionary_region = ('00' * 1024) # Setter expects hex string
+        # self._initialized_for_new is already True from base if create_new was true
+
+    def __str__(self):
+        # Leverage the .data property from HeaderABC for a consistent string representation
+        data_dict = self.data
+        return (f"  MetadataSection3: RTO={data_dict.get('recording_time_offset', 'N/A')}, "
+                f"GMT_Offset={data_dict.get('gmt_offset', 'N/A')}, "
+                f"SubjectID='{data_dict.get('subject_id', 'N/A')}'")
+
 
 
 class TimeSeriesMetadataFile:

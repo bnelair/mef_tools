@@ -3,7 +3,7 @@ import os
 import numpy as np
 from datetime import datetime
 
-from mef_tools.reimplementation import TimeSeriesMetadataFile, EncryptionHandler, UniversalHeader, TimeSeriesMetadataFile
+from mef_tools.reimplementation import TimeSeriesMetadataFile, EncryptionHandler, UniversalHeader, TimeSeriesMetadataFile, TimeSeriesMetadataSection2
 
 def test_try():
     path = '/Users/mivalt.filip/mef_tools_new/mef_tools_new/test.mefd'
@@ -49,11 +49,13 @@ def test_try():
     print(self.section2.channel_description)
     print('done')
 
+    print(self.section3.gmt_offset)
+
     self.section2._data_raw.keys()
     #
     # # self.section2.number_of_discontinuities_raw =
 
-
+    section2 = TimeSeriesMetadataSection2(create_new=True)
 
     self.section2.channel_description = 'kokooo999999999ot'
 
