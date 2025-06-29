@@ -50,13 +50,14 @@ MEF_VERSION_MINOR = 0
 MEF_LITTLE_ENDIAN = 1
 
 # "No Entry" values
-UUTC_NO_ENTRY = 0x8000000000000000 # For si8 time fields
+UUTC_NO_ENTRY = -9223372036854775808 # For si8 time fields
 SI8_NO_ENTRY_NEG1 = -1
 SI4_NO_ENTRY_NEG1 = -1
 UI4_NO_ENTRY_FFFF = 0xFFFFFFFF
 SF8_NO_ENTRY_NEG1_0 = -1.0
 SF8_NO_ENTRY_NAN = float('nan')
 GMT_OFFSET_NO_ENTRY = -86401 # As per meflib.h MEF_METADATA_GMT_OFFSET_NO_ENTRY
+RED_NAN_SI4 = -2147483648 # For si4 max/min sample value in index
 
 EMPTY_STRING_BYTES_MAP = {
     5: b'\0'*5, 16: b'\0'*16, 60: b'\0'*60, 64: b'\0'*64,
@@ -73,6 +74,7 @@ NO_ENCRYPTION = 0
 LEVEL_1_ENCRYPTION = 1
 LEVEL_2_ENCRYPTION = 2
 
+TIME_SERIES_INDEX_ENTRY_BYTES = 56
 
 # CRC Table from meflib.h (CRC_KOOPMAN32_KEY)
 CRC_KOOPMAN32_TABLE = (
@@ -971,3 +973,174 @@ class TimeSeriesMetadataFile:
             f"{self.section2}\n"
             f"{self.section3}"
         )
+
+
+class TimeSeriesIndexEntry(HeaderABC):
+    SIZE = TIME_SERIES_INDEX_ENTRY_BYTES  # 56 bytes
+    # (prop_name, raw_key, struct_fmt, offset_within_entry, size, type_hint)
+    FIELD_DEFINITIONS = [
+        ('file_offset', 'file_offset_raw', '<q', 0, 8, False),
+        ('start_time', 'start_time_raw', '<q', 8, 8, False),
+        ('start_sample', 'start_sample_raw', '<q', 16, 8, False),
+        ('number_of_samples', 'number_of_samples_raw', '<I', 24, 4, False),
+        ('block_bytes', 'block_bytes_raw', '<I', 28, 4, False),
+        ('maximum_sample_value', 'maximum_sample_value_raw', '<i', 32, 4, False),
+        ('minimum_sample_value', 'minimum_sample_value_raw', '<i', 36, 4, False),
+        ('protected_region', 'idx_protected_region_raw', '4s', 40, 4, 'hex'),  # Copied from RED block header
+        ('red_block_flags', 'red_block_flags_raw', '<B', 44, 1, False),  # ui1, Copied from RED block header
+        ('red_block_protected_region', 'red_block_protected_region_raw', '3s', 45, 3, 'hex'),
+        ('red_block_discretionary_region', 'red_block_discretionary_region_raw', '8s', 48, 8, 'hex')
+    ]
+
+    def __init__(self, data_bytes: bytes = None, create_new: bool = False):
+        super().__init__(data_bytes=data_bytes, create_new=create_new)
+        # _make_properties() is called by super().__init__()
+        if create_new:  # Called by HeaderABC's __init__ path if create_new is True
+            self._initialize_new_specifics()
+
+    def _initialize_new_specifics(self):
+        """Sets MEF specific default values for a new TimeSeriesIndexEntry."""
+        # Call setters which will correctly pack values into _data_raw
+        self.file_offset = SI8_NO_ENTRY_NEG1
+        self.start_time = UUTC_NO_ENTRY
+        self.start_sample = SI8_NO_ENTRY_NEG1
+        self.number_of_samples = UI4_NO_ENTRY_FFFF
+        self.block_bytes = UI4_NO_ENTRY_FFFF
+        self.maximum_sample_value = RED_NAN_SI4  # si4
+        self.minimum_sample_value = RED_NAN_SI4  # si4
+        self.protected_region = ('00' * 4)  # Stored as hex string by property
+        self.red_block_flags = 0  # ui1
+        self.red_block_protected_region = ('00' * 3)
+        self.red_block_discretionary_region = ('00' * 8)
+        self._initialized_for_new = True
+
+
+class TimeSeriesIndicesFile:
+    """
+    Represents a .tidx file, containing a UniversalHeader and a list of TimeSeriesIndexEntry objects.
+    """
+
+    def __init__(self, filepath: str = None, password: str = None, file_bytes: bytes = None, create_new: bool = False,
+                 **uh_kwargs_for_new):
+        self.filepath = filepath
+        self._password_str = password  # Used for UH password validation
+        self.universal_header: UniversalHeader = None
+        self.entries: list[TimeSeriesIndexEntry] = []
+        self.pwd_check_results = None  # For storing results from UH password check
+
+        if create_new:
+            self._initialize_new_file(**uh_kwargs_for_new)
+        elif file_bytes:
+            self._load_and_parse_from_bytes(file_bytes)
+        elif filepath:
+            self._load_from_file_and_parse()
+        else:
+            raise ValueError("TimeSeriesIndicesFile requires filepath, file_bytes, or create_new=True.")
+
+    def _initialize_new_file(self, **uh_kwargs):
+        self.universal_header = UniversalHeader(create_new=True)
+        self.universal_header.file_type_string = "tidx"
+
+        # Apply any other UH defaults or overrides passed in uh_kwargs
+        # Example: session_name, channel_name, segment_number
+        # These are often derived from the segment this index file belongs to.
+        for key, value in uh_kwargs.items():
+            if hasattr(self.universal_header, key):
+                setattr(self.universal_header, key, value)
+            else:
+                print(f"Warning: Unknown UniversalHeader argument '{key}' provided for new .tidx file.")
+
+        self.universal_header.number_of_entries = 0
+        self.universal_header.maximum_entry_size = TimeSeriesIndexEntry.SIZE
+        self.entries = []
+        # Password fields in UH will be zeros unless explicitly set later via write_to_file with passwords
+        self.pwd_check_results = {'access_level': LEVEL_0_ACCESS, 'level1_key_bytes': None, 'level2_key_bytes': None}
+
+    def _load_from_file_and_parse(self):
+        if not self.filepath:
+            raise ValueError("Filepath is not set.")
+        try:
+            with open(self.filepath, 'rb') as f:
+                file_content = f.read()
+        except FileNotFoundError:
+            raise FileNotFoundError(f"File not found: {self.filepath}")
+        except Exception as e:
+            raise IOError(f"Error reading file '{self.filepath}': {e}")
+
+        self._load_and_parse_from_bytes(file_content)
+
+    def _load_and_parse_from_bytes(self, file_content: bytes):
+        if len(file_content) < UniversalHeader.SIZE:
+            raise ValueError("File content too short for Universal Header.")
+
+        uh_bytes = file_content[:UniversalHeader.SIZE]
+        self.universal_header = UniversalHeader(source_bytes=uh_bytes)
+
+        if not self.universal_header.is_crc_valid:
+            print(f"Warning: Universal Header CRC validation failed for '{self.filepath or 'byte input'}'.")
+
+        # Perform password validation if UH is password protected
+        if self.universal_header.is_password_protected():
+            if self._password_str is None:
+                print(
+                    f"Warning: File '{self.filepath or 'byte input'}' is password protected, but no password provided.")
+                # Proceeding without keys, assuming only unencrypted data is intended to be accessed
+                self.pwd_check_results = {'access_level': LEVEL_0_ACCESS, 'level1_key_bytes': None,
+                                          'level2_key_bytes': None}
+            else:
+                self.pwd_check_results = self.universal_header.check_password(self._password_str)
+                if self.pwd_check_results['access_level'] == LEVEL_0_ACCESS and self._password_str:
+                    print(f"Warning: Invalid password for '{self.filepath or 'byte input'}'.")
+        else:
+            self.pwd_check_results = {'access_level': LEVEL_0_ACCESS, 'level1_key_bytes': None,
+                                      'level2_key_bytes': None}
+
+        entries_data_bytes = file_content[UniversalHeader.SIZE:]
+        num_uh_entries = self.universal_header.number_of_entries
+
+        if num_uh_entries is None or num_uh_entries < 0:  # Should be positive or 0
+            print(
+                f"Warning: Universal Header number_of_entries is invalid ({num_uh_entries}). Attempting to parse all possible entries.")
+            num_uh_entries = len(entries_data_bytes) // TimeSeriesIndexEntry.SIZE
+
+        expected_body_size = num_uh_entries * TimeSeriesIndexEntry.SIZE
+        if len(entries_data_bytes) < expected_body_size:
+            print(
+                f"Warning: Index file body size {len(entries_data_bytes)} is less than expected based on UH number_of_entries "
+                f"({num_uh_entries} * {TimeSeriesIndexEntry.SIZE} = {expected_body_size} bytes). "
+                f"Parsing available entries.")
+
+        self.entries = []
+        for i in range(num_uh_entries):
+            offset = i * TimeSeriesIndexEntry.SIZE
+            if offset + TimeSeriesIndexEntry.SIZE > len(entries_data_bytes):
+                print(f"Warning: Not enough data for entry {i + 1}. Stopping parse.")
+                break
+            entry_bytes = entries_data_bytes[offset: offset + TimeSeriesIndexEntry.SIZE]
+            try:
+                self.entries.append(TimeSeriesIndexEntry(data_bytes=entry_bytes))
+            except Exception as e:
+                print(f"Error parsing TimeSeriesIndexEntry {i}: {e}")
+                # Decide whether to stop or continue
+                break
+
+        # Verify body CRC if available and if all expected entries were parsed
+        if self.universal_header.body_crc not in [0, None] and len(entries_data_bytes) >= expected_body_size:
+            actual_body_crc = calculate_mef_crc32(entries_data_bytes[:expected_body_size])
+            if actual_body_crc != self.universal_header.body_crc:
+                print(f"Warning: Body CRC mismatch for '{self.filepath or 'byte input'}'. "
+                      f"UH: 0x{self.universal_header.body_crc:X}, Calculated: 0x{actual_body_crc:X}")
+            else:
+                if self.universal_header.is_crc_valid:  # Only print if header CRC also valid
+                    print(f"Info: Body CRC is valid for '{self.filepath or 'byte input'}'.")
+
+    def __str__(self):
+        s = [str(self.universal_header) if self.universal_header else "UniversalHeader: Not loaded"]
+        s.append(f"Number of Time Series Index Entries: {len(self.entries)}")
+        # Optionally print a few entries for brevity
+        for i, entry in enumerate(self.entries[:min(3, len(self.entries))]):  # Print first 3
+            s.append(f"--- Entry {i + 1} ---")
+            s.append(str(entry))
+        if len(self.entries) > 3:
+            s.append("... (more entries not shown)")
+        return "\n".join(s)

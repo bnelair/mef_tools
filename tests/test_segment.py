@@ -2,8 +2,13 @@ from mef_tools import MefReader, MefWriter
 import os
 import numpy as np
 from datetime import datetime
+import time
 
-from mef_tools.reimplementation import TimeSeriesMetadataFile, EncryptionHandler, UniversalHeader, TimeSeriesMetadataFile, TimeSeriesMetadataSection2
+from mef_tools.reimplementation import (
+    TimeSeriesMetadataFile, EncryptionHandler, UniversalHeader,
+    TimeSeriesMetadataFile, TimeSeriesMetadataSection2,
+    TimeSeriesIndicesFile, TimeSeriesIndexEntry
+)
 
 def test_try():
     path = '/Users/mivalt.filip/mef_tools_new/mef_tools_new/test.mefd'
@@ -19,48 +24,58 @@ def test_try():
     x = np.random.randn(1005)
     wrt.write_data(x, 'ch1', start, 250, precision=3)
 
+    t1 = time.time()
     rdr = MefReader(path, 'kokot.')
+    t2 = time.time()
+    print(f"Time to read file: {t2 - t1:.4f} seconds")
 
-    pth = os.path.join(path, 'ch1.timd', 'ch1-000000.segd', 'ch1-000000.tmet')
+    pth_tmet = os.path.join(path, 'ch1.timd', 'ch1-000000.segd', 'ch1-000000.tmet')
+    pth_tidx = os.path.join(path, 'ch1.timd', 'ch1-000000.segd', 'ch1-000000.tidx')
 
     # self = UniversalHeader(filepath=pth)
 
-    self = TimeSeriesMetadataFile(pth, 'kokot.')
-
-    # print(self)
+    t1 = time.time()
+    tmet_file = TimeSeriesMetadataFile(pth_tmet, 'kokot.')
+    tidx_file = TimeSeriesIndicesFile(pth_tidx, 'kokot.')
+    t2 = time.time()
+    print(f"Time to read metadata files: {t2 - t1:.4f} seconds")
 
     print('\n\n######## Universal #############')
-    for k, v in self.universal_header.data.items():
+    for k, v in tmet_file.universal_header.data.items():
         print(f"{k}: {v}")
 
     print('\n\n######## Section 1 #############')
-    for k, v in self.section1.data.items():
+    for k, v in tmet_file.section1.data.items():
         print(f"{k}: {v}")
 
     print('\n\n######## Section 2 #############')
-    print(self.section2)
-    for k, v in self.section2.data.items():
+    print(tmet_file.section2)
+    for k, v in tmet_file.section2.data.items():
         print(f"{k}: {v}")
 
     print('\n\n######## Section 3 #############')
-    print(self.section3)
-    for k, v in self.section3.data.items():
+    print(tmet_file.section3)
+    for k, v in tmet_file.section3.data.items():
         print(f"{k}: {v}")
 
 
-    print(self.section2.channel_description)
-    print('done')
+    self = TimeSeriesIndicesFile(pth_tidx, 'kokot.')
 
-    print(self.section3.gmt_offset)
+    print('\n\n######## TIDX UH #############')
+    for k, v in self.universal_header.data.items():
+        print(f"{k}: {v}")
 
-    self.section2._data_raw.keys()
-    #
-    # # self.section2.number_of_discontinuities_raw =
+    print('\n\n######## TIDX Entry #############')
+    for entry in self.entries:
+        print(entry)
+        print('---')
+        for k, v in entry.data.items():
+            print(f"{k}: {v}")
 
-    section2 = TimeSeriesMetadataSection2(create_new=True)
 
-    self.section2.channel_description = 'kokooo999999999ot'
+    new_entry = TimeSeriesIndexEntry(create_new=True)
 
 
+    print('kokooot')
     #
     # self.section2.units_conversion_factor = 0.1
