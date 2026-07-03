@@ -1,0 +1,32 @@
+[build-system]
+requires = ["scikit-build-core>=0.9", "nanobind>=2.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "mef3io"
+version = "0.1.0.dev0"
+description = "MEF 3.0 read/write — C++ core with Python bindings, pure-Python fallback"
+readme = "README.rst"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Mayo Clinic — BNEL" }]
+dependencies = ["numpy>=1.23"]
+
+[project.optional-dependencies]
+pure = ["numba"]
+compat = ["pandas"]
+test = ["pytest", "pandas", "pymef"]
+
+[tool.scikit-build]
+# The importable package lives in python/mef3io; the compiled _mef3io lands
+# beside it via the CMake install rule.
+wheel.packages = ["python/mef3io"]
+minimum-version = "0.9"
+build-dir = "build/skbuild/{wheel_tag}"
+cmake.version = ">=3.26"
+
+[tool.scikit-build.cmake.define]
+MEF3IO_BUILD_TESTS = "OFF"
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "python/mef3io"]
