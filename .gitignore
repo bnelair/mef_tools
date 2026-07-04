@@ -1,4 +1,22 @@
 
 .DS_Store
+/main.py
+/examples/
+/examples/__init__.py
+/examples/csv2mef.py
+/examples/edf2mef.py
+/examples/joinmat_to_mef.py
+/examples/mat_to_mef.py
 /.idea/
 *.pyc
+build/
+python/mef3io/_mef3io*.so
+python/mef3io/_mef3io*.pyd
+__pycache__/
+tests/golden/*.mefd/
+.pytest_cache/
+/reference_files/mef3_dump-main/
+/reference_files/
+
+# Reference sources (oracles), kept on disk but untracked
+reference_files/
