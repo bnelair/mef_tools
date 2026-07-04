@@ -11,6 +11,21 @@
     :target: https://pypi.org/project/mef-tools/
 
 
+.. warning::
+
+   **mef-tools is deprecated and no longer maintained.**
+
+   It has been superseded by **mef3io** — a from-scratch C++ implementation of
+   MEF 3.0 with Python bindings. mef3io offers the same high-level API (a
+   drop-in ``mef3io.compat`` mirrors ``mef_tools.io``), plus faster reads and
+   writes, parallel block decoding/encoding, and no ``pymef`` build dependency.
+
+   **➡️  Please migrate to mef3io:** https://github.com/bnelair/mef3io
+   (``pip install mef3io``)
+
+   This repository remains available for reference and backwards compatibility,
+   but will not receive further updates.
+
 
 MEF_Tools
 ----------------
